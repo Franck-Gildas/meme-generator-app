@@ -1,0 +1,20 @@
+---
+name: styling
+description: Styling rules for the Project
+---
+
+# Overview
+
+General styling constraints for the agent
+
+# Rule: Primary colors
+
+Do not use purple, blue, or gradients containing these colors as primary colors of the design system.
+
+# Rule: Design
+
+The user would like a clean and minimalistic design.
+
+# Rule: Emoji usage
+
+The agent mustn't generate or include any emojis in any output unless explicitly requested.
