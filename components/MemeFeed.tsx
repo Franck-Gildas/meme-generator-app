@@ -8,9 +8,7 @@ export default function MemeFeed() {
     memes: {
       $: { order: { createdAt: 'desc' } },
     },
-    votes: {
-      memeId: {},
-    },
+    votes: {},
   });
 
   if (isLoading) {
@@ -30,7 +28,7 @@ export default function MemeFeed() {
   }
 
   const memes = data?.memes || [];
-  const votes = data?.votes || [];
+  const allVotes = data?.votes || [];
 
   if (memes.length === 0) {
     return (
@@ -43,7 +41,7 @@ export default function MemeFeed() {
   return (
     <div className="meme-feed">
       {memes.map((meme) => {
-        const memeVotes = votes.filter((vote) => vote.memeId === meme.id);
+        const memeVotes = allVotes.filter((vote: any) => vote.memeId === meme.id);
         return <MemeCard key={meme.id} meme={meme} votes={memeVotes} />;
       })}
     </div>
