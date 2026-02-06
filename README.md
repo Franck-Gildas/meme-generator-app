@@ -36,17 +36,26 @@ NEXT_PUBLIC_INSTANT_APP_ID=your_instant_app_id_here
 ```
 
 To get your InstantDB App ID:
+
 - Go to https://instantdb.com/dash
 - Create a new app or use an existing one
 - Copy your App ID
 
-3. **Run the development server:**
+3. **Push the schema to InstantDB:**
+
+```bash
+npx instant-cli push-schema
+```
+
+This syncs your local schema (`instant.schema.ts`) with InstantDB. You need to do this whenever you modify the schema.
+
+4. **Run the development server:**
 
 ```bash
 npm run dev
 ```
 
-4. **Open your browser:**
+5. **Open your browser:**
 
 Navigate to http://localhost:3000
 
@@ -116,6 +125,20 @@ Navigate to http://localhost:3000
 - Ensure `.env.local` file exists in the root directory
 - Check that the variable name is exactly `NEXT_PUBLIC_INSTANT_APP_ID`
 - Restart the dev server after creating/modifying `.env.local`
+
+### "The `memes.createdAt` attribute is not indexed" Error
+
+This means you haven't pushed your schema to InstantDB yet. Run:
+
+```bash
+npx instant-cli push-schema
+```
+
+This syncs your local schema with InstantDB's servers. You must do this:
+
+- After initial setup
+- Whenever you modify `instant.schema.ts`
+- If you see validation errors about indexes or attributes
 
 ### Images Not Loading
 

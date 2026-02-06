@@ -1,46 +1,64 @@
-'use client';
+"use client";
 
-import React, { useRef, useEffect, useState, useCallback } from 'react';
-import { escapeHtml } from '@/lib/utils';
-
-interface TextBox {
-  id: string;
-  text: string;
-  x: number;
-  y: number;
-  fontSize: number;
-  color: string;
-  width: number;
-  height: number;
-}
+import React, { useRef, useEffect, useState, useCallback } from "react";
+import { TextBox } from "@/types";
+import { useAuth } from "@/components/AppShell";
 
 interface MemeCanvasProps {
-  onPostMeme?: (imageUrl: string, textBoxes: TextBox[]) => void;
+  onPostMeme?: (
+    imageUrl: string,
+    textBoxes: TextBox[],
+    baseImageUrl: string,
+  ) => void;
+  onUpdateMeme?: (
+    imageUrl: string,
+    textBoxes: TextBox[],
+    baseImageUrl: string,
+  ) => void;
+  initialImageUrl?: string;
+  initialTextBoxes?: TextBox[];
 }
 
 const TEMPLATES = [
-  '/assets/Carl Sagan.jpg',
-  '/assets/Cute girl.jpg',
-  '/assets/Heroes & Villains.jpg',
-  '/assets/Miley Cyrus.jpg',
-  '/assets/relatable.jpg',
+  "/assets/Carl Sagan.jpg",
+  "/assets/Cute girl.jpg",
+  "/assets/Heroes & Villains.jpg",
+  "/assets/Miley Cyrus.jpg",
+  "/assets/relatable.jpg",
 ];
 
-export default function MemeCanvas({ onPostMeme }: MemeCanvasProps) {
+export default function MemeCanvas({
+  onPostMeme,
+  onUpdateMeme,
+  initialImageUrl,
+  initialTextBoxes,
+}: MemeCanvasProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const hasInitializedRef = useRef(false);
   const [image, setImage] = useState<HTMLImageElement | null>(null);
   const [textBoxes, setTextBoxes] = useState<TextBox[]>([]);
-  const [selectedTextBoxId, setSelectedTextBoxId] = useState<string | null>(null);
+  const [selectedTextBoxId, setSelectedTextBoxId] = useState<string | null>(
+    null,
+  );
   const [isDragging, setIsDragging] = useState(false);
   const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 });
   const [fontSize, setFontSize] = useState(40);
-  const [textColor, setTextColor] = useState('#ffffff');
+  const [textColor, setTextColor] = useState("#ffffff");
+  const isEditing = Boolean(onUpdateMeme);
+  const { isSignedIn, openSignIn } = useAuth();
+
+  const ensureSignedIn = () => {
+    if (!onPostMeme) return true;
+    if (isSignedIn) return true;
+    openSignIn("Please sign in to post photos or memes.");
+    return false;
+  };
 
   const render = useCallback(() => {
     const canvas = canvasRef.current;
     if (!canvas || !image) return;
 
-    const ctx = canvas.getContext('2d');
+    const ctx = canvas.getContext("2d");
     if (!ctx) return;
 
     // Clear canvas
@@ -52,19 +70,39 @@ export default function MemeCanvas({ onPostMeme }: MemeCanvasProps) {
     // Draw text boxes
     textBoxes.forEach((textBox) => {
       ctx.font = `bold ${textBox.fontSize}px Arial`;
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+
+      // Draw subtle background for readability
+      const textMetrics = ctx.measureText(textBox.text);
+      const textWidth = textMetrics.width;
+      const textHeight = textBox.fontSize;
+      const padding = Math.max(6, Math.round(textBox.fontSize * 0.3));
+      ctx.fillStyle = "rgba(0, 0, 0, 0.35)";
+      ctx.fillRect(
+        textBox.x - textWidth / 2 - padding,
+        textBox.y - textHeight / 2 - padding,
+        textWidth + padding * 2,
+        textHeight + padding * 2,
+      );
 
       // Draw black border (stroke)
-      ctx.strokeStyle = 'black';
-      ctx.lineWidth = 6;
-      ctx.lineJoin = 'round';
+      const strokeWidth = Math.max(2, Math.round(textBox.fontSize / 6));
+      ctx.shadowColor = "rgba(0, 0, 0, 0.35)";
+      ctx.shadowBlur = Math.max(2, Math.round(textBox.fontSize / 12));
+      ctx.shadowOffsetY = 1;
+      ctx.strokeStyle = "black";
+      ctx.lineWidth = strokeWidth;
+      ctx.lineJoin = "round";
       ctx.miterLimit = 2;
       ctx.strokeText(textBox.text, textBox.x, textBox.y);
 
       // Draw text with selected color (fill)
-      ctx.fillStyle = textBox.color || '#ffffff';
+      ctx.fillStyle = textBox.color || "#ffffff";
       ctx.fillText(textBox.text, textBox.x, textBox.y);
+      ctx.shadowColor = "transparent";
+      ctx.shadowBlur = 0;
+      ctx.shadowOffsetY = 0;
 
       // Draw selection indicator
       if (textBox.id === selectedTextBoxId) {
@@ -72,23 +110,19 @@ export default function MemeCanvas({ onPostMeme }: MemeCanvasProps) {
         const textWidth = textMetrics.width;
         const textHeight = textBox.fontSize;
 
-        ctx.strokeStyle = '#667eea';
+        ctx.strokeStyle = "#ff5722";
         ctx.lineWidth = 2;
         ctx.setLineDash([5, 5]);
         ctx.strokeRect(
           textBox.x - textWidth / 2 - 5,
           textBox.y - textHeight / 2 - 5,
           textWidth + 10,
-          textHeight + 10
+          textHeight + 10,
         );
         ctx.setLineDash([]);
       }
     });
   }, [image, textBoxes, selectedTextBoxId]);
-
-  useEffect(() => {
-    render();
-  }, [render]);
 
   const setupCanvas = useCallback((img: HTMLImageElement) => {
     const canvas = canvasRef.current;
@@ -110,23 +144,59 @@ export default function MemeCanvas({ onPostMeme }: MemeCanvasProps) {
     canvas.height = height;
   }, []);
 
-  const handleImageUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (!file) return;
+  useEffect(() => {
+    render();
+  }, [render]);
 
-    const reader = new FileReader();
-    reader.onload = (e) => {
+  useEffect(() => {
+    if (hasInitializedRef.current) return;
+    if (
+      !initialImageUrl &&
+      (!initialTextBoxes || initialTextBoxes.length === 0)
+    ) {
+      return;
+    }
+
+    if (initialImageUrl) {
       const img = new Image();
       img.onload = () => {
         setImage(img);
         setupCanvas(img);
       };
-      img.src = e.target.result as string;
+      img.src = initialImageUrl;
+    }
+
+    if (initialTextBoxes && initialTextBoxes.length > 0) {
+      setTextBoxes(initialTextBoxes);
+      setSelectedTextBoxId(null);
+    }
+
+    hasInitializedRef.current = true;
+  }, [initialImageUrl, initialTextBoxes, setupCanvas]);
+
+  const handleImageUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
+    if (!ensureSignedIn()) {
+      event.target.value = "";
+      return;
+    }
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = () => {
+      const img = new Image();
+      img.onload = () => {
+        setImage(img);
+        setupCanvas(img);
+      };
+      if (!reader.result) return;
+      img.src = reader.result as string;
     };
     reader.readAsDataURL(file);
   };
 
   const loadTemplate = (src: string) => {
+    if (!ensureSignedIn()) return;
     const img = new Image();
     img.onload = () => {
       setImage(img);
@@ -138,14 +208,14 @@ export default function MemeCanvas({ onPostMeme }: MemeCanvasProps) {
   const addTextBox = () => {
     const canvas = canvasRef.current;
     if (!canvas || !image) {
-      alert('Please upload an image first!');
+      alert("Please upload an image first!");
       return;
     }
 
     const id = Date.now().toString();
     const newTextBox: TextBox = {
       id,
-      text: 'Your text here',
+      text: "Your text here",
       x: canvas.width / 2,
       y: canvas.height / 2,
       fontSize,
@@ -164,7 +234,7 @@ export default function MemeCanvas({ onPostMeme }: MemeCanvasProps) {
     if (selectedTextBoxId === id) {
       setSelectedTextBoxId(null);
       setFontSize(40);
-      setTextColor('#ffffff');
+      setTextColor("#ffffff");
     }
   };
 
@@ -173,33 +243,38 @@ export default function MemeCanvas({ onPostMeme }: MemeCanvasProps) {
     const textBox = textBoxes.find((tb) => tb.id === id);
     if (textBox) {
       setFontSize(textBox.fontSize);
-      setTextColor(textBox.color || '#ffffff');
+      setTextColor(textBox.color || "#ffffff");
     }
   };
 
-  const updateTextBoxText = (id: string, text: string) => {
-    setTextBoxes(
-      textBoxes.map((tb) => (tb.id === id ? { ...tb, text } : tb))
+  const updateTextBoxText = useCallback((id: string, text: string) => {
+    setTextBoxes((prevTextBoxes) =>
+      prevTextBoxes.map((tb) => (tb.id === id ? { ...tb, text } : tb)),
     );
-  };
+  }, []);
 
-  const updateTextBoxFontSize = (id: string, newFontSize: number) => {
-    setTextBoxes(
-      textBoxes.map((tb) => (tb.id === id ? { ...tb, fontSize: newFontSize } : tb))
-    );
-  };
+  const updateTextBoxFontSize = useCallback(
+    (id: string, newFontSize: number) => {
+      setTextBoxes((prevTextBoxes) =>
+        prevTextBoxes.map((tb) =>
+          tb.id === id ? { ...tb, fontSize: newFontSize } : tb,
+        ),
+      );
+    },
+    [],
+  );
 
-  const updateTextBoxColor = (id: string, color: string) => {
-    setTextBoxes(
-      textBoxes.map((tb) => (tb.id === id ? { ...tb, color } : tb))
+  const updateTextBoxColor = useCallback((id: string, color: string) => {
+    setTextBoxes((prevTextBoxes) =>
+      prevTextBoxes.map((tb) => (tb.id === id ? { ...tb, color } : tb)),
     );
-  };
+  }, []);
 
   const getTextBoxAtPoint = (x: number, y: number): TextBox | null => {
     const canvas = canvasRef.current;
     if (!canvas) return null;
 
-    const ctx = canvas.getContext('2d');
+    const ctx = canvas.getContext("2d");
     if (!ctx) return null;
 
     for (let i = textBoxes.length - 1; i >= 0; i--) {
@@ -241,12 +316,12 @@ export default function MemeCanvas({ onPostMeme }: MemeCanvasProps) {
       setIsDragging(true);
       setSelectedTextBoxId(textBox.id);
       setDragOffset({ x: canvasX - textBox.x, y: canvasY - textBox.y });
-      canvas.style.cursor = 'grabbing';
+      canvas.style.cursor = "grabbing";
 
       const selectedBox = textBoxes.find((tb) => tb.id === textBox.id);
       if (selectedBox) {
         setFontSize(selectedBox.fontSize);
-        setTextColor(selectedBox.color || '#ffffff');
+        setTextColor(selectedBox.color || "#ffffff");
       }
     }
   };
@@ -272,18 +347,34 @@ export default function MemeCanvas({ onPostMeme }: MemeCanvasProps) {
         let newX = canvasX - dragOffset.x;
         let newY = canvasY - dragOffset.y;
 
-        newX = Math.max(0, Math.min(newX, canvas.width));
-        newY = Math.max(0, Math.min(newY, canvas.height));
+        const ctx = canvas.getContext("2d");
+        if (ctx) {
+          ctx.font = `bold ${textBox.fontSize}px Arial`;
+          const textMetrics = ctx.measureText(textBox.text);
+          const textWidth = textMetrics.width;
+          const textHeight = textBox.fontSize;
+          const padding = Math.max(8, Math.round(textBox.fontSize * 0.35));
+          const minX = textWidth / 2 + padding;
+          const maxX = canvas.width - textWidth / 2 - padding;
+          const minY = textHeight / 2 + padding;
+          const maxY = canvas.height - textHeight / 2 - padding;
+
+          newX = Math.max(minX, Math.min(newX, maxX));
+          newY = Math.max(minY, Math.min(newY, maxY));
+        } else {
+          newX = Math.max(0, Math.min(newX, canvas.width));
+          newY = Math.max(0, Math.min(newY, canvas.height));
+        }
 
         setTextBoxes(
           textBoxes.map((tb) =>
-            tb.id === selectedTextBoxId ? { ...tb, x: newX, y: newY } : tb
-          )
+            tb.id === selectedTextBoxId ? { ...tb, x: newX, y: newY } : tb,
+          ),
         );
       }
     } else {
       const textBox = getTextBoxAtPoint(canvasX, canvasY);
-      canvas.style.cursor = textBox ? 'grab' : 'default';
+      canvas.style.cursor = textBox ? "grab" : "default";
     }
   };
 
@@ -292,7 +383,7 @@ export default function MemeCanvas({ onPostMeme }: MemeCanvasProps) {
       setIsDragging(false);
       const canvas = canvasRef.current;
       if (canvas) {
-        canvas.style.cursor = 'move';
+        canvas.style.cursor = "move";
       }
     }
   };
@@ -300,7 +391,7 @@ export default function MemeCanvas({ onPostMeme }: MemeCanvasProps) {
   const handleTouchStart = (e: React.TouchEvent<HTMLCanvasElement>) => {
     e.preventDefault();
     const touch = e.touches[0];
-    const mouseEvent = new MouseEvent('mousedown', {
+    const mouseEvent = new MouseEvent("mousedown", {
       clientX: touch.clientX,
       clientY: touch.clientY,
     });
@@ -310,7 +401,7 @@ export default function MemeCanvas({ onPostMeme }: MemeCanvasProps) {
   const handleTouchMove = (e: React.TouchEvent<HTMLCanvasElement>) => {
     e.preventDefault();
     const touch = e.touches[0];
-    const mouseEvent = new MouseEvent('mousemove', {
+    const mouseEvent = new MouseEvent("mousemove", {
       clientX: touch.clientX,
       clientY: touch.clientY,
     });
@@ -319,30 +410,26 @@ export default function MemeCanvas({ onPostMeme }: MemeCanvasProps) {
 
   useEffect(() => {
     if (selectedTextBoxId) {
-      const textBox = textBoxes.find((tb) => tb.id === selectedTextBoxId);
-      if (textBox) {
-        updateTextBoxFontSize(selectedTextBoxId, fontSize);
-      }
+      updateTextBoxFontSize(selectedTextBoxId, fontSize);
     }
-  }, [fontSize]);
+  }, [fontSize, selectedTextBoxId, updateTextBoxFontSize]);
 
   useEffect(() => {
     if (selectedTextBoxId) {
-      const textBox = textBoxes.find((tb) => tb.id === selectedTextBoxId);
-      if (textBox) {
-        updateTextBoxColor(selectedTextBoxId, textColor);
-      }
+      updateTextBoxColor(selectedTextBoxId, textColor);
     }
-  }, [textColor]);
+  }, [textColor, selectedTextBoxId, updateTextBoxColor]);
 
   const downloadMeme = () => {
     if (!image || textBoxes.length === 0) {
-      alert('Please add an image and at least one text box before downloading!');
+      alert(
+        "Please add an image and at least one text box before downloading!",
+      );
       return;
     }
 
-    const tempCanvas = document.createElement('canvas');
-    const tempCtx = tempCanvas.getContext('2d');
+    const tempCanvas = document.createElement("canvas");
+    const tempCtx = tempCanvas.getContext("2d");
     if (!tempCtx) return;
 
     tempCanvas.width = image.width;
@@ -358,44 +445,70 @@ export default function MemeCanvas({ onPostMeme }: MemeCanvasProps) {
 
     textBoxes.forEach((textBox) => {
       tempCtx.font = `bold ${textBox.fontSize * scaleX}px Arial`;
-      tempCtx.textAlign = 'center';
-      tempCtx.textBaseline = 'middle';
+      tempCtx.textAlign = "center";
+      tempCtx.textBaseline = "middle";
 
-      tempCtx.strokeStyle = 'black';
-      tempCtx.lineWidth = 6 * scaleX;
-      tempCtx.lineJoin = 'round';
+      const scaledFontSize = textBox.fontSize * scaleX;
+      const textMetrics = tempCtx.measureText(textBox.text);
+      const textWidth = textMetrics.width;
+      const textHeight = scaledFontSize;
+      const padding = Math.max(6, Math.round(scaledFontSize * 0.3));
+      tempCtx.fillStyle = "rgba(0, 0, 0, 0.35)";
+      tempCtx.fillRect(
+        textBox.x * scaleX - textWidth / 2 - padding,
+        textBox.y * scaleY - textHeight / 2 - padding,
+        textWidth + padding * 2,
+        textHeight + padding * 2,
+      );
+
+      const strokeWidth = Math.max(
+        2,
+        Math.round((textBox.fontSize * scaleX) / 6),
+      );
+      tempCtx.shadowColor = "rgba(0, 0, 0, 0.35)";
+      tempCtx.shadowBlur = Math.max(
+        2,
+        Math.round((textBox.fontSize * scaleX) / 12),
+      );
+      tempCtx.shadowOffsetY = 1;
+      tempCtx.strokeStyle = "black";
+      tempCtx.lineWidth = strokeWidth;
+      tempCtx.lineJoin = "round";
       tempCtx.miterLimit = 2;
       tempCtx.strokeText(textBox.text, textBox.x * scaleX, textBox.y * scaleY);
 
-      tempCtx.fillStyle = textBox.color || '#ffffff';
+      tempCtx.fillStyle = textBox.color || "#ffffff";
       tempCtx.fillText(textBox.text, textBox.x * scaleX, textBox.y * scaleY);
+      tempCtx.shadowColor = "transparent";
+      tempCtx.shadowBlur = 0;
+      tempCtx.shadowOffsetY = 0;
     });
 
     tempCanvas.toBlob((blob) => {
       if (!blob) return;
       const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
+      const a = document.createElement("a");
       a.href = url;
       a.download = `meme-${Date.now()}.png`;
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
       URL.revokeObjectURL(url);
-    }, 'image/png');
+    }, "image/png");
   };
 
-  const postMeme = () => {
+  const createMemeImageUrl = () => {
     if (!image || textBoxes.length === 0) {
-      alert('Please add an image and at least one text box before posting!');
-      return;
+      alert("Please add an image and at least one text box before posting!");
+      return null;
     }
 
     const canvas = canvasRef.current;
-    if (!canvas) return;
+    if (!canvas) return null;
 
-    const tempCanvas = document.createElement('canvas');
-    const tempCtx = tempCanvas.getContext('2d');
-    if (!tempCtx) return;
+    const tempCanvas = document.createElement("canvas");
+    const tempCtx = tempCanvas.getContext("2d");
+    if (!tempCtx) return null;
 
     tempCanvas.width = image.width;
     tempCanvas.height = image.height;
@@ -407,22 +520,63 @@ export default function MemeCanvas({ onPostMeme }: MemeCanvasProps) {
 
     textBoxes.forEach((textBox) => {
       tempCtx.font = `bold ${textBox.fontSize * scaleX}px Arial`;
-      tempCtx.textAlign = 'center';
-      tempCtx.textBaseline = 'middle';
+      tempCtx.textAlign = "center";
+      tempCtx.textBaseline = "middle";
 
-      tempCtx.strokeStyle = 'black';
-      tempCtx.lineWidth = 6 * scaleX;
-      tempCtx.lineJoin = 'round';
+      const scaledFontSize = textBox.fontSize * scaleX;
+      const textMetrics = tempCtx.measureText(textBox.text);
+      const textWidth = textMetrics.width;
+      const textHeight = scaledFontSize;
+      const padding = Math.max(6, Math.round(scaledFontSize * 0.3));
+      tempCtx.fillStyle = "rgba(0, 0, 0, 0.35)";
+      tempCtx.fillRect(
+        textBox.x * scaleX - textWidth / 2 - padding,
+        textBox.y * scaleY - textHeight / 2 - padding,
+        textWidth + padding * 2,
+        textHeight + padding * 2,
+      );
+
+      const strokeWidth = Math.max(
+        2,
+        Math.round((textBox.fontSize * scaleX) / 6),
+      );
+      tempCtx.shadowColor = "rgba(0, 0, 0, 0.35)";
+      tempCtx.shadowBlur = Math.max(
+        2,
+        Math.round((textBox.fontSize * scaleX) / 12),
+      );
+      tempCtx.shadowOffsetY = 1;
+      tempCtx.strokeStyle = "black";
+      tempCtx.lineWidth = strokeWidth;
+      tempCtx.lineJoin = "round";
       tempCtx.miterLimit = 2;
       tempCtx.strokeText(textBox.text, textBox.x * scaleX, textBox.y * scaleY);
 
-      tempCtx.fillStyle = textBox.color || '#ffffff';
+      tempCtx.fillStyle = textBox.color || "#ffffff";
       tempCtx.fillText(textBox.text, textBox.x * scaleX, textBox.y * scaleY);
+      tempCtx.shadowColor = "transparent";
+      tempCtx.shadowBlur = 0;
+      tempCtx.shadowOffsetY = 0;
     });
 
-    const imageUrl = tempCanvas.toDataURL('image/png');
-    if (onPostMeme) {
-      onPostMeme(imageUrl, textBoxes);
+    const imageUrl = tempCanvas.toDataURL("image/png");
+    return imageUrl;
+  };
+
+  const postMeme = () => {
+    if (!ensureSignedIn()) return;
+    const imageUrl = createMemeImageUrl();
+    if (!imageUrl) return;
+    if (onPostMeme && image) {
+      onPostMeme(imageUrl, textBoxes, image.src);
+    }
+  };
+
+  const updateMeme = () => {
+    const imageUrl = createMemeImageUrl();
+    if (!imageUrl) return;
+    if (onUpdateMeme && image) {
+      onUpdateMeme(imageUrl, textBoxes, image.src);
     }
   };
 
@@ -494,21 +648,24 @@ export default function MemeCanvas({ onPostMeme }: MemeCanvasProps) {
             <div id="textBoxesList" className="text-boxes-list">
               {textBoxes.length === 0 ? (
                 <p className="empty-message">
-                  No text boxes yet. Click &quot;Add Text Box&quot; to create one.
+                  No text boxes yet. Click &quot;Add Text Box&quot; to create
+                  one.
                 </p>
               ) : (
                 textBoxes.map((textBox) => (
                   <div
                     key={textBox.id}
                     className={`text-box-item ${
-                      textBox.id === selectedTextBoxId ? 'selected' : ''
+                      textBox.id === selectedTextBoxId ? "selected" : ""
                     }`}
                   >
                     <input
                       type="text"
                       value={textBox.text}
                       placeholder="Enter text..."
-                      onChange={(e) => updateTextBoxText(textBox.id, e.target.value)}
+                      onChange={(e) =>
+                        updateTextBoxText(textBox.id, e.target.value)
+                      }
                     />
                     <div className="text-box-actions">
                       <button
@@ -538,14 +695,24 @@ export default function MemeCanvas({ onPostMeme }: MemeCanvasProps) {
             >
               Download Meme
             </button>
-            {onPostMeme && (
+            {onPostMeme && !isEditing && (
               <button
                 onClick={postMeme}
                 className="btn btn-primary"
-                style={{ marginTop: '12px' }}
+                style={{ marginTop: "12px" }}
                 disabled={!image || textBoxes.length === 0}
               >
                 Post Meme
+              </button>
+            )}
+            {onUpdateMeme && (
+              <button
+                onClick={updateMeme}
+                className="btn btn-primary"
+                style={{ marginTop: "12px" }}
+                disabled={!image || textBoxes.length === 0}
+              >
+                Update Meme
               </button>
             )}
           </div>
@@ -555,7 +722,7 @@ export default function MemeCanvas({ onPostMeme }: MemeCanvasProps) {
           <canvas
             ref={canvasRef}
             id="memeCanvas"
-            className={image ? 'has-image' : ''}
+            className={image ? "has-image" : ""}
             onMouseDown={handleMouseDown}
             onMouseMove={handleMouseMove}
             onMouseUp={handleMouseUp}
@@ -563,7 +730,7 @@ export default function MemeCanvas({ onPostMeme }: MemeCanvasProps) {
             onTouchStart={handleTouchStart}
             onTouchMove={handleTouchMove}
             onTouchEnd={handleMouseUp}
-            style={{ cursor: 'move', display: image ? 'block' : 'none' }}
+            style={{ cursor: "move", display: image ? "block" : "none" }}
           />
           {!image && (
             <div id="canvasPlaceholder" className="canvas-placeholder">

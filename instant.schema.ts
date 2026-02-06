@@ -1,18 +1,19 @@
-import { i } from '@instantdb/react';
+import { i } from "@instantdb/react";
 
 const schema = i.schema({
   entities: {
     memes: i.entity({
       imageUrl: i.string(),
+      baseImageUrl: i.string().optional(),
       textBoxes: i.json(),
-      createdAt: i.number(),
+      createdAt: i.number().indexed(),
       createdBy: i.string().optional(),
-      upvotes: i.number(),
+      upvotes: i.number().indexed(),
     }),
     votes: i.entity({
-      memeId: i.string(),
-      userId: i.string(),
-      createdAt: i.number(),
+      memeId: i.string().indexed(),
+      userId: i.string().indexed(),
+      createdAt: i.number().indexed(),
     }),
   },
   rooms: {},

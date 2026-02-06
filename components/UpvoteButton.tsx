@@ -1,14 +1,14 @@
-'use client';
+"use client";
 
-import { useState, useEffect } from 'react';
-import { db } from '@/lib/db';
-import { id } from '@instantdb/react';
-import { getUserId } from '@/lib/utils';
+import { useState } from "react";
+import { db } from "@/lib/db";
+import { id } from "@instantdb/react";
+import type { Vote } from "@/types";
 
 interface UpvoteButtonProps {
   memeId: string;
   currentUpvotes: number;
-  votes: Array<{ id: string; userId: string; memeId: string }>;
+  votes: Vote[];
 }
 
 export default function UpvoteButton({
@@ -17,28 +17,49 @@ export default function UpvoteButton({
   votes,
 }: UpvoteButtonProps) {
   const [isVoting, setIsVoting] = useState(false);
-  const userId = getUserId();
-  const hasVoted = votes.some((vote) => vote.userId === userId);
+  const { user } = db.useAuth();
+  const userIdentifiers = [user?.id, user?.email].filter(
+    (value): value is string => Boolean(value),
+  );
+  const userIdentifier = userIdentifiers[0] ?? null;
+  const existingVote =
+    userIdentifiers.length > 0
+      ? votes.find((vote) => userIdentifiers.includes(vote.userId))
+      : null;
+  const hasVoted = Boolean(existingVote);
+  const buttonTitle = !userIdentifier
+    ? "Sign in to upvote"
+    : hasVoted
+      ? "Remove upvote"
+      : "Upvote";
 
   const handleUpvote = async () => {
-    if (hasVoted || isVoting) return;
+    if (!userIdentifier || isVoting) return;
 
     setIsVoting(true);
     try {
-      const voteId = id();
-
-      await db.transact([
-        db.tx.votes[voteId].update({
-          memeId,
-          userId,
-          createdAt: Date.now(),
-        }),
-        db.tx.memes[memeId].update({
-          upvotes: currentUpvotes + 1,
-        }),
-      ]);
+      if (hasVoted && existingVote) {
+        await db.transact([
+          db.tx.votes[existingVote.id].delete(),
+          db.tx.memes[memeId].update({
+            upvotes: Math.max(0, currentUpvotes - 1),
+          }),
+        ]);
+      } else {
+        const voteId = id();
+        await db.transact([
+          db.tx.votes[voteId].update({
+            memeId,
+            userId: userIdentifier,
+            createdAt: Date.now(),
+          }),
+          db.tx.memes[memeId].update({
+            upvotes: currentUpvotes + 1,
+          }),
+        ]);
+      }
     } catch (error) {
-      console.error('Error upvoting:', error);
+      console.error("Error upvoting:", error);
     } finally {
       setIsVoting(false);
     }
@@ -47,23 +68,17 @@ export default function UpvoteButton({
   return (
     <button
       onClick={handleUpvote}
-      className="upvote-btn"
-      disabled={hasVoted || isVoting}
-      style={{
-        background: hasVoted ? 'var(--success)' : 'var(--accent)',
-        color: 'white',
-        border: 'none',
-        padding: '8px 16px',
-        borderRadius: '8px',
-        cursor: hasVoted ? 'not-allowed' : 'pointer',
-        fontWeight: 600,
-        display: 'flex',
-        alignItems: 'center',
-        gap: '8px',
-      }}
+      type="button"
+      className={`action-button upvote-button ${hasVoted ? "is-active" : ""}`}
+      disabled={!userIdentifier || isVoting}
+      aria-pressed={hasVoted}
+      aria-label={buttonTitle}
+      title={buttonTitle}
     >
-      <span>▲</span>
-      <span>{currentUpvotes}</span>
+      <span className="upvote-icon" aria-hidden="true">
+        ▲
+      </span>
+      <span className="upvote-count">{currentUpvotes}</span>
     </button>
   );
 }

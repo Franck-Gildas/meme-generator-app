@@ -1,10 +1,10 @@
-import type { Metadata } from 'next';
-import './globals.css';
-import Link from 'next/link';
+import type { Metadata } from "next";
+import "./globals.css";
+import AppShell from "@/components/AppShell";
 
 export const metadata: Metadata = {
-  title: 'Meme Generator',
-  description: 'Create and share memes with the community',
+  title: "Meme Generator",
+  description: "Create and share memes with the community",
 };
 
 export default function RootLayout({
@@ -15,13 +15,7 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body>
-        <div className="container">
-          <nav>
-            <Link href="/">Feed</Link>
-            <Link href="/create">Create</Link>
-          </nav>
-          {children}
-        </div>
+        <AppShell>{children}</AppShell>
       </body>
     </html>
   );
