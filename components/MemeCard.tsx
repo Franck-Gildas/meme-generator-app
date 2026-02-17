@@ -121,7 +121,7 @@ export default function MemeCard({ meme, votes }: MemeCardProps) {
         });
       }
     };
-    img.src = sourceImageUrl;
+    img.src = sourceImageUrl!;
   }, [meme]);
 
   return (
