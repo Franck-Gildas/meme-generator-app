@@ -73,6 +73,7 @@ export default function MemeCard({ meme, votes }: MemeCardProps) {
 
     const textBoxes: TextBox[] = JSON.parse(meme.textBoxes || "[]");
     const sourceImageUrl = meme.imageUrl || meme.baseImageUrl;
+    if (!sourceImageUrl) return;
     const shouldRenderText = false;
     const img = new Image();
     img.onload = () => {
